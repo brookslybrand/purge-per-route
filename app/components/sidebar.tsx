@@ -39,7 +39,7 @@ export default function Sidebar({ subPages, children }: SidebarProps) {
                   ))}
                 </ul>
               </div>
-              {children}
+              <div className="sm:col-span-3">{children}</div>
             </div>
           </section>
         </section>
