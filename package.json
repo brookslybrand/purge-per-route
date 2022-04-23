@@ -25,13 +25,17 @@
     "typecheck": "tsc -b && tsc -b cypress",
     "validate": "run-p \"test -- --run\" lint typecheck test:e2e:run"
   },
-  "prettier": {},
+  "prettier": {
+    "singleQuote": true
+  },
   "eslintIgnore": [
     "/node_modules",
     "/build",
     "/public/build"
   ],
   "dependencies": {
+    "@headlessui/react": "^1.5.0",
+    "@heroicons/react": "^1.0.6",
     "@prisma/client": "^3.11.1",
     "@remix-run/node": "^1.4.1",
     "@remix-run/react": "^1.4.1",
