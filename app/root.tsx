@@ -22,6 +22,7 @@ import { BellIcon, MenuIcon, XIcon } from '@heroicons/react/outline';
 import tailwindStylesheetUrl from './styles/tailwind.css';
 import { getUser } from './session.server';
 import { Route } from 'react-router';
+import { classNames } from './utils';
 
 export const links: LinksFunction = () => {
   return [{ rel: 'stylesheet', href: tailwindStylesheetUrl }];
@@ -54,10 +55,6 @@ const userNavigation = [
   { name: 'Settings', href: '#' },
   { name: 'Sign out', href: '#' },
 ];
-
-function classNames(...classes: string[]) {
-  return classes.filter(Boolean).join(' ');
-}
 
 export default function App() {
   const { pathname } = useLocation();

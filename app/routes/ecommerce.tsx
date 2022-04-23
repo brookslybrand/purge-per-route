@@ -1,14 +1,14 @@
 import { Outlet } from '@remix-run/react';
 import Sidebar from '~/components/sidebar';
 
-export default function Application() {
+export default function Marketing() {
   return (
     <Sidebar
       subPages={[
-        'description-lists',
-        'dropdowns',
-        'login-and-registration',
-        'pagination',
+        'category-previews',
+        'product-features',
+        'product-lists',
+        'product-quickviews',
       ]}
     >
       <Outlet />
