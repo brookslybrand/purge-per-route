@@ -1,8 +1,14 @@
 import { PaperClipIcon } from '@heroicons/react/solid';
-import type { MetaFunction } from '@remix-run/server-runtime';
+import type { MetaFunction, LinksFunction } from '@remix-run/server-runtime';
+
+import descriptionListsCss from '~/styles/routes/application/description-lists.css';
 
 export let meta: MetaFunction = () => {
   return { title: 'Application | Description Lists' };
+};
+
+export const links: LinksFunction = () => {
+  return [{ rel: 'stylesheet', href: descriptionListsCss }];
 };
 
 export default function DescriptionLists() {

@@ -19,10 +19,9 @@ import { Fragment } from 'react';
 import { Disclosure, Menu, Transition } from '@headlessui/react';
 import { BellIcon, MenuIcon, XIcon } from '@heroicons/react/outline';
 
-import tailwindStylesheetUrl from './styles/tailwind.css';
-import { getUser } from './session.server';
-import { Route } from 'react-router';
-import { classNames } from './utils';
+import tailwindStylesheetUrl from '~/styles/root.css';
+import { getUser } from '~/session.server';
+import { classNames } from '~/utils';
 
 export const links: LinksFunction = () => {
   return [{ rel: 'stylesheet', href: tailwindStylesheetUrl }];
@@ -76,7 +75,7 @@ export default function App() {
       <head>
         <Meta />
         <Links />
-        {/* <link rel="stylesheet" href="https://rsms.me/inter/inter.css" /> */}
+        <link rel="stylesheet" href="https://rsms.me/inter/inter.css" />
       </head>
       <body className="h-full">
         <>
