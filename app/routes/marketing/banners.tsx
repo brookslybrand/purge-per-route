@@ -1,9 +1,15 @@
 /* eslint-disable jsx-a11y/anchor-is-valid */
 import { SpeakerphoneIcon, XIcon } from '@heroicons/react/outline';
-import type { MetaFunction } from '@remix-run/server-runtime';
+import type { MetaFunction, LinksFunction } from '@remix-run/server-runtime';
+
+import bannersCss from '~/styles/routes/marketing/banners.css';
 
 export let meta: MetaFunction = () => {
   return { title: 'Marketing | Banners' };
+};
+
+export const links: LinksFunction = () => {
+  return [{ rel: 'stylesheet', href: bannersCss }];
 };
 
 export default function Banners() {

@@ -1,9 +1,15 @@
 /* eslint-disable jsx-a11y/anchor-is-valid */
 import { ChevronLeftIcon, ChevronRightIcon } from '@heroicons/react/solid';
-import type { MetaFunction } from '@remix-run/server-runtime';
+import type { MetaFunction, LinksFunction } from '@remix-run/server-runtime';
+
+import paginationCss from '~/styles/routes/application/pagination.css';
 
 export let meta: MetaFunction = () => {
   return { title: 'Application | Pagination' };
+};
+
+export const links: LinksFunction = () => {
+  return [{ rel: 'stylesheet', href: paginationCss }];
 };
 
 export default function Pagination() {

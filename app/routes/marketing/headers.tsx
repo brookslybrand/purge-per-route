@@ -16,11 +16,17 @@ import {
   XIcon,
 } from '@heroicons/react/outline';
 import { ChevronDownIcon } from '@heroicons/react/solid';
-import type { MetaFunction } from '@remix-run/server-runtime';
+import type { MetaFunction, LinksFunction } from '@remix-run/server-runtime';
 import { classNames } from '~/utils';
+
+import headersCss from '~/styles/routes/marketing/headers.css';
 
 export let meta: MetaFunction = () => {
   return { title: 'Marketing | Headers' };
+};
+
+export const links: LinksFunction = () => {
+  return [{ rel: 'stylesheet', href: headersCss }];
 };
 
 const solutions = [

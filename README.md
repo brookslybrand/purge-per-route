@@ -1,8 +1,18 @@
-# Remix Indie Stack
+# Tailwind Purge-Per-Route Demo
+
+This is a demo for creating tailwind stylesheets for routes that purge based on the entire ancestry of the route.
+
+This is very much an incomplete demo. Some known issues:
+
+- Dev mode is slow, as I am currently watching the `routes/` directory and rebuilding all of the CSS anytime a file changes
+- Purging does not work correctly with [variants](https://tailwindcss.com/docs/container#responsive-variants), so there is some noticeable style name clashing due to the naive purging that is being done
+- scripts/styles.js is a mess 🙈
+
+## Remix Indie Stack
 
 ![The Remix Indie Stack](https://repository-images.githubusercontent.com/465928257/a241fa49-bd4d-485a-a2a5-5cb8e4ee0abf)
 
-Learn more about [Remix Stacks](https://remix.run/stacks).
+This demo uses the Remix Indie Stack. Learn more about [Remix Stacks](https://remix.run/stacks).
 
 ```
 npx create-remix --template remix-run/indie-stack
