@@ -3,15 +3,18 @@ import Sidebar from '~/components/sidebar';
 
 export default function Application() {
   return (
-    <Sidebar
-      subPages={[
-        'description-lists',
-        'dropdowns',
-        'login-and-registration',
-        'pagination',
-      ]}
-    >
-      <Outlet />
-    </Sidebar>
+    // TODO: remove className, just using for testing
+    <div className="bg-green-400">
+      <Sidebar
+        subPages={[
+          'description-lists',
+          'dropdowns',
+          'login-and-registration',
+          'pagination',
+        ]}
+      >
+        <Outlet />
+      </Sidebar>
+    </div>
   );
 }

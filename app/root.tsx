@@ -24,7 +24,10 @@ import { getUser } from '~/session.server';
 import { classNames } from '~/utils';
 
 export const links: LinksFunction = () => {
-  return [{ rel: 'stylesheet', href: tailwindStylesheetUrl }];
+  return [
+    { rel: 'stylesheet', href: 'https://rsms.me/inter/inter.css' },
+    { rel: 'stylesheet', href: tailwindStylesheetUrl },
+  ];
 };
 
 export const meta: MetaFunction = () => ({
@@ -75,7 +78,6 @@ export default function App() {
       <head>
         <Meta />
         <Links />
-        <link rel="stylesheet" href="https://rsms.me/inter/inter.css" />
       </head>
       <body className="h-full">
         <>
