@@ -11,42 +11,116 @@ let stylesRoutesPath = path.join(stylesPath, 'routes');
 let baseTailwindCss = path.join(stylesPath, 'tailwind/base.css');
 let routeTailwindCss = path.join(stylesPath, 'tailwind/route.css');
 
-let root = path.join(appPath, 'root.tsx');
-let application = path.join(routesPath, 'application.tsx');
-let applicationPagination = path.join(routesPath, 'application/pagination.tsx');
+let root = path.join(appPath, 'root.{js,jsx,ts,tsx}');
+let application = path.join(routesPath, 'application.{js,jsx,ts,tsx}');
+let applicationPagination = path.join(
+  routesPath,
+  'application/pagination.{js,jsx,ts,tsx}'
+);
 
 call();
 
 async function call() {
-  let [rootStylesAst, applicationStylesAst, applicationPaginationStylesAst] =
-    await Promise.all([
-      generateTailwindAst(
-        baseTailwindCss,
-        `${root},${appPath}/components/**/*.{js,jsx,ts,tsx}`
-      ),
-      generateTailwindAst(routeTailwindCss, application),
-      generateTailwindAst(routeTailwindCss, applicationPagination),
-    ]);
+  let t0 = performance.now();
+  let [rootAst, routeAstMap] = await Promise.all([
+    generateTailwindAst(
+      baseTailwindCss,
+      `${root},${appPath}/components/**/*.{js,jsx,ts,tsx}`
+    ),
+    generateAllTailwindAsts(),
+  ]);
+  console.log(`Time to generate all tailwind ASTs: ${performance.now() - t0}`);
 
-  let rootClassNames = getClassNames(rootStylesAst);
-  let applicationClassNames = getClassNames(applicationStylesAst);
+  // console.log(asts);
+  // let [rootStylesAst, applicationStylesAst, applicationPaginationStylesAst] =
+  //   await Promise.all([
+  //     generateTailwindAst(
+  //       baseTailwindCss,
+  //       `${root},${appPath}/components/**/*.{js,jsx,ts,tsx}`
+  //     ),
+  //     generateTailwindAst(routeTailwindCss, application),
+  //     generateTailwindAst(routeTailwindCss, applicationPagination),
+  //   ]);
 
-  let ancestorClassNames = new Set([
-    ...rootClassNames,
-    ...applicationClassNames,
+  // let rootClassNames = getClassNames(rootStylesAst);
+  // let applicationClassNames = getClassNames(applicationStylesAst);
+
+  // console.log({
+  //   rootSize: rootClassNames.size,
+  //   applicationSize: applicationClassNames.size,
+  //   applicationPaginationSize: getClassNames(applicationPaginationStylesAst)
+  //     .size,
+  // });
+
+  // let ancestorClassNames = new Set([
+  //   ...rootClassNames,
+  //   ...applicationClassNames,
+  // ]);
+
+  // let rootStylesheet = csstree.generate(rootStylesAst);
+  // let stylesheetText = generatePurgedStylesheet(
+  //   applicationPaginationStylesAst,
+  //   ancestorClassNames
+  // );
+
+  // await writeFile(path.join(stylesPath, 'root.css'), rootStylesheet);
+  // await writeFile(
+  //   path.join(stylesRoutesPath, 'application', 'pagination.css'),
+  //   stylesheetText
+  // );
+}
+
+/**
+ * Recursively walks the tree of routes, generating the tailwind styles for each route and returning
+ * an AST of the styles in a Map keyed by the route path
+ * @param {string} directoryPath Path of the directory with files to generate ASTs and recursively walk
+ * child directories
+ * @returns {Promise<Map<string, csstree.CssNode>>} Map of route path to AST of styles
+ */
+async function generateAllTailwindAsts(directoryPath = routesPath) {
+  let directoryPromises = [];
+
+  /**
+   * @type {Map<string, csstree.CssNode>}
+   */
+  let astPromiseMap = new Map();
+
+  let files = await readdir(directoryPath, { withFileTypes: true });
+
+  for (let file of files) {
+    // Recursively walk children directories
+    if (file.isDirectory()) {
+      let childDirectory = `${directoryPath}/${file.name}`;
+      let childDirectoryPromise = generateAllTailwindAsts(childDirectory);
+      directoryPromises.push(childDirectoryPromise);
+      continue;
+    }
+
+    // Create tailwind ASTs for files
+    let filePathname = `${directoryPath}/${file.name}`;
+    let astPromise = generateTailwindAst(routeTailwindCss, filePathname);
+    astPromiseMap.set(filePathname, astPromise);
+  }
+
+  // Let the files and directories resolve
+  let [values, directoryValues] = await Promise.all([
+    Promise.all([...astPromiseMap.values()]),
+    Promise.all(directoryPromises),
   ]);
 
-  let rootStylesheet = csstree.generate(rootStylesAst);
-  let stylesheetText = generatePurgedStylesheet(
-    applicationPaginationStylesAst,
-    ancestorClassNames
-  );
+  // Build up a new map from the files
+  let pathnames = [...astPromiseMap.keys()];
+  let finalMap = new Map();
+  for (let i = 0; i < pathnames.length; i++) {
+    finalMap.set(pathnames[i], values[i]);
+  }
 
-  await writeFile(path.join(stylesPath, 'root.css'), rootStylesheet);
-  await writeFile(
-    path.join(stylesRoutesPath, 'application', 'pagination.css'),
-    stylesheetText
-  );
+  // Add the ASTs for the directories to the map
+  for (let astMap of directoryValues) {
+    finalMap = new Map([...finalMap, ...astMap]);
+  }
+
+  return finalMap;
 }
 
 /**
@@ -56,6 +130,7 @@ async function call() {
  * @returns {string} The purged css
  */
 function generatePurgedStylesheet(ast, ancestorClassNames) {
+  csstree.clone(ast);
   // remove all classes that exist in the ancestor classNames
   csstree.walk(ast, {
     visit: 'Rule', // this option is good for performance since reduces walking path length
@@ -102,10 +177,10 @@ function getClassNames(ast) {
 }
 
 /**
- * Runs tailwindcss CLI for a specific file
+ * Runs the tailwindcss CLI for a specific file then parses and returns an AST of the styles
  * @param {string} inputStylePathname
  * @param {string} contentPathname
- * @returns
+ * @returns {Promise<csstree.CssNode>} AST of tailwindcss styles for contentPathname
  */
 async function generateTailwindAst(inputStylePathname, contentPathname) {
   let twProcess = spawn(
@@ -113,12 +188,11 @@ async function generateTailwindAst(inputStylePathname, contentPathname) {
     ['-i', inputStylePathname, `--content=${contentPathname}`],
     { shell: true }
   );
-
   let output = await promisifyTailwindProcess(twProcess);
   return csstree.parse(output);
 }
 
-//#region UTILS
+// #region UTILS
 
 /**
  * Turn a child processes resulting from calling `spawn` into promises
@@ -143,4 +217,4 @@ function promisifyTailwindProcess(twProcess) {
   });
 }
 
-//#endregion
+// #endregion
