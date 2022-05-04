@@ -21,7 +21,6 @@ let applicationPagination = path.join(
 call();
 
 async function call() {
-  let t0 = performance.now();
   let [rootAst, routeAstMap] = await Promise.all([
     generateTailwindAst(
       baseTailwindCss,
@@ -29,9 +28,7 @@ async function call() {
     ),
     generateAllTailwindAsts(),
   ]);
-  console.log(`Time to generate all tailwind ASTs: ${performance.now() - t0}`);
 
-  // console.log(asts);
   // let [rootStylesAst, applicationStylesAst, applicationPaginationStylesAst] =
   //   await Promise.all([
   //     generateTailwindAst(
@@ -71,56 +68,23 @@ async function call() {
 }
 
 /**
- * Recursively walks the tree of routes, generating the tailwind styles for each route and returning
- * an AST of the styles in a Map keyed by the route path
- * @param {string} directoryPath Path of the directory with files to generate ASTs and recursively walk
- * child directories
- * @returns {Promise<Map<string, csstree.CssNode>>} Map of route path to AST of styles
+ * Generates and loops over a list of file paths and generates the tailwind styles for each file,
+ * returning an AST of the styles in a Map keyed by the route path
+ * @returns {Promise<Map<string, csstree.CssNode>>} Map of file path to AST of styles
  */
-async function generateAllTailwindAsts(directoryPath = routesPath) {
-  let directoryPromises = [];
+async function generateAllTailwindAsts() {
+  const filePaths = await getAllFilePaths();
 
-  /**
-   * @type {Map<string, csstree.CssNode>}
-   */
-  let astPromiseMap = new Map();
+  let entryPromises = filePaths.map(async (path) => {
+    /**
+     * @type [string, csstree.CssNode]
+     */
+    let entry = [path, await generateTailwindAst(routeTailwindCss, path)];
+    return entry;
+  });
 
-  let files = await readdir(directoryPath, { withFileTypes: true });
-
-  for (let file of files) {
-    // Recursively walk children directories
-    if (file.isDirectory()) {
-      let childDirectory = `${directoryPath}/${file.name}`;
-      let childDirectoryPromise = generateAllTailwindAsts(childDirectory);
-      directoryPromises.push(childDirectoryPromise);
-      continue;
-    }
-
-    // Create tailwind ASTs for files
-    let filePathname = `${directoryPath}/${file.name}`;
-    let astPromise = generateTailwindAst(routeTailwindCss, filePathname);
-    astPromiseMap.set(filePathname, astPromise);
-  }
-
-  // Let the files and directories resolve
-  let [values, directoryValues] = await Promise.all([
-    Promise.all([...astPromiseMap.values()]),
-    Promise.all(directoryPromises),
-  ]);
-
-  // Build up a new map from the files
-  let pathnames = [...astPromiseMap.keys()];
-  let finalMap = new Map();
-  for (let i = 0; i < pathnames.length; i++) {
-    finalMap.set(pathnames[i], values[i]);
-  }
-
-  // Add the ASTs for the directories to the map
-  for (let astMap of directoryValues) {
-    finalMap = new Map([...finalMap, ...astMap]);
-  }
-
-  return finalMap;
+  let entries = await Promise.all(entryPromises);
+  return new Map(entries);
 }
 
 /**
@@ -215,6 +179,34 @@ function promisifyTailwindProcess(twProcess) {
       reject(error.message);
     });
   });
+}
+
+/**
+ * Recursively walks a directory and returns a list of all the file pathnames
+ * @param {string} directoryPath Path of the directory with files to generate ASTs and recursively walk
+ * @returns {Promise<string[]>} List of file pathnames
+ */
+async function getAllFilePaths(directoryPath = routesPath) {
+  let filePaths = [];
+  let childrenDirectoryPromises = [];
+
+  let files = await readdir(directoryPath, { withFileTypes: true });
+
+  for (let file of files) {
+    let pathname = `${directoryPath}/${file.name}`;
+    // Add all files to the list of file names and recursively walk children directories
+    if (!file.isDirectory()) {
+      filePaths.push(pathname);
+    } else {
+      childrenDirectoryPromises.push(getAllFilePaths(pathname));
+    }
+  }
+
+  // Add the child directory file names to the list of file names
+  let childDirectoryFilePaths = await Promise.all(childrenDirectoryPromises);
+  filePaths.push(...childDirectoryFilePaths.flat());
+
+  return filePaths;
 }
 
 // #endregion
