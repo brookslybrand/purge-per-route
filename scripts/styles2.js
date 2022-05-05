@@ -1,4 +1,4 @@
-let { readFile, writeFile, readdir, rm } = require('fs/promises');
+let { readFile, writeFile, readdir, rm, mkdir } = require('fs/promises');
 let path = require('path');
 let { spawn } = require('child_process');
 let csstree = require('css-tree');
@@ -12,15 +12,13 @@ let baseTailwindCss = path.join(stylesPath, 'tailwind/base.css');
 let routeTailwindCss = path.join(stylesPath, 'tailwind/route.css');
 
 let root = path.join(appPath, 'root.{js,jsx,ts,tsx}');
-let application = path.join(routesPath, 'application.{js,jsx,ts,tsx}');
-let applicationPagination = path.join(
-  routesPath,
-  'application/pagination.{js,jsx,ts,tsx}'
-);
 
 call();
 
 async function call() {
+  let t0 = performance.now();
+  dumpCssFiles();
+
   let [rootAst, routeAstMap] = await Promise.all([
     generateTailwindAst(
       baseTailwindCss,
@@ -29,57 +27,82 @@ async function call() {
     generateAllTailwindAsts(),
   ]);
 
-  // let [rootStylesAst, applicationStylesAst, applicationPaginationStylesAst] =
-  //   await Promise.all([
-  //     generateTailwindAst(
-  //       baseTailwindCss,
-  //       `${root},${appPath}/components/**/*.{js,jsx,ts,tsx}`
-  //     ),
-  //     generateTailwindAst(routeTailwindCss, application),
-  //     generateTailwindAst(routeTailwindCss, applicationPagination),
-  //   ]);
+  let rootClassNames = getClassNames(rootAst);
 
-  // let rootClassNames = getClassNames(rootStylesAst);
-  // let applicationClassNames = getClassNames(applicationStylesAst);
+  // kick of the root stylesheet writing
+  let fileWritingPromises = [];
+  let rootStylesheet = csstree.generate(rootAst);
+  let rootPromise = writeFile(
+    path.join(stylesPath, 'root.css'),
+    rootStylesheet
+  );
+  fileWritingPromises.push(rootPromise);
 
-  // console.log({
-  //   rootSize: rootClassNames.size,
-  //   applicationSize: applicationClassNames.size,
-  //   applicationPaginationSize: getClassNames(applicationPaginationStylesAst)
-  //     .size,
-  // });
+  // Create all the directories we might need
+  let directoryPromise = [];
+  let directories = new Set();
+  for (let pathname of routeAstMap.keys()) {
+    let directory = path.dirname(getCssPathname(pathname));
+    if (directories.has(directory)) continue;
 
-  // let ancestorClassNames = new Set([
-  //   ...rootClassNames,
-  //   ...applicationClassNames,
-  // ]);
+    directoryPromise.push(mkdir(directory, { recursive: true }));
+    directories.add(directory);
+  }
 
-  // let rootStylesheet = csstree.generate(rootStylesAst);
-  // let stylesheetText = generatePurgedStylesheet(
-  //   applicationPaginationStylesAst,
-  //   ancestorClassNames
-  // );
+  try {
+    await Promise.all(directoryPromise);
+  } catch (error) {
+    if (error.code !== 'EEXIST') {
+      throw error;
+    }
+  }
 
-  // await writeFile(path.join(stylesPath, 'root.css'), rootStylesheet);
-  // await writeFile(
-  //   path.join(stylesRoutesPath, 'application', 'pagination.css'),
-  //   stylesheetText
-  // );
+  // map overall of the route stylesheets purging
+  for (let pathname of routeAstMap.keys()) {
+    let ancestorPathnames = getAncestorPathnames(pathname);
+    let ancestorClassNames = rootClassNames;
+
+    for (let ancestorPathname of ancestorPathnames) {
+      // skip ancestorPathnames that don't exist
+      if (!routeAstMap.has(ancestorPathname)) continue;
+      let { classnames } = routeAstMap.get(ancestorPathname);
+      ancestorClassNames = new Set([...rootClassNames, ...classnames]);
+    }
+
+    let { ast } = routeAstMap.get(pathname);
+    let stylesheetText = generatePurgedStylesheet(ast, ancestorClassNames);
+
+    let promise = writeFile(getCssPathname(pathname), stylesheetText);
+    fileWritingPromises.push(promise);
+  }
+
+  await Promise.all([...directoryPromise, ...fileWritingPromises]);
+
+  console.log();
+  console.log(
+    `All css has been successfully generated in ${performance.now() - t0}ms`
+  );
+  console.log();
 }
 
 /**
  * Generates and loops over a list of file paths and generates the tailwind styles for each file,
  * returning an AST of the styles in a Map keyed by the route path
- * @returns {Promise<Map<string, csstree.CssNode>>} Map of file path to AST of styles
+ * Note: The pathname keys have their extension stripped
+ * @returns {Promise<Map<string, {ast: csstree.CssNode, classnames: Set<string>}>>} Map of file path to AST and set of classnames
  */
 async function generateAllTailwindAsts() {
-  const filePaths = await getAllFilePaths();
+  let filePaths = await getAllFilePaths();
 
-  let entryPromises = filePaths.map(async (path) => {
-    /**
-     * @type [string, csstree.CssNode]
-     */
-    let entry = [path, await generateTailwindAst(routeTailwindCss, path)];
+  let entryPromises = filePaths.map(async (pathname) => {
+    // drop the extension for the route path—this helps with matching parent directories later
+    let extensionRegex = new RegExp(`${path.extname(pathname)}$`);
+    let extensionlessPathname = pathname.replace(extensionRegex, '');
+    let ast = await generateTailwindAst(routeTailwindCss, pathname);
+    let entry = [
+      extensionlessPathname,
+      { ast, classnames: getClassNames(ast) },
+    ];
     return entry;
   });
 
@@ -207,6 +230,54 @@ async function getAllFilePaths(directoryPath = routesPath) {
   filePaths.push(...childDirectoryFilePaths.flat());
 
   return filePaths;
+}
+
+/**
+ * Takes a pathname and returns the file pathname for each possible layout file.
+ * Assumes the pathname does not have it's extension and returns parent pathnames without extensions
+ * For more information on how Remix handles layout hierarchy, see https://remix.run/docs/en/v1/guides/routing#rendering-route-layout-hierarchies
+ * @param {string} pathname
+ * @returns {string[]} List of ancestor pathnames
+ */
+function getAncestorPathnames(pathname) {
+  let ext = path.extname(pathname);
+  if (ext !== '') {
+    throw new Error(`Pathname should not have an extension: ${pathname}`);
+  }
+
+  // remove everything up to './routes/' to only capture the pathnames we care about
+  let relativePath = pathname.replace(`${routesPath}/`, '');
+  let segments = relativePath.split('/');
+  segments.pop(); // remove the last segment since we only want ancestor pathnames
+
+  return segments.map((s) => path.join(routesPath, s));
+}
+
+/**
+ * Takes a pathname and returns the appropriate stylesheet (.css) file pathname
+ * @param {string} pathname
+ */
+function getCssPathname(pathname) {
+  // remove everything up to './routes/' to only capture the pathnames we care about
+  let relativePath = pathname.replace(`${routesPath}/`, '');
+  return path.join(stylesRoutesPath, `${relativePath}.css`);
+}
+
+/**
+ * Recursively remove all the generated .css files to ensure we're starting fresh
+ */
+async function dumpCssFiles() {
+  try {
+    await Promise.all([
+      rm(path.join(stylesPath, 'root.css')),
+      rm(stylesRoutesPath, { recursive: true }),
+    ]);
+  } catch (error) {
+    // if the directory doesn't exist just keep going
+    if (error.code !== 'ENOENT') {
+      throw error;
+    }
+  }
 }
 
 // #endregion
