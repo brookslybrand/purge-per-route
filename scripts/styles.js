@@ -1,241 +1,319 @@
-let { readFile, writeFile, readdir, rm } = require('fs/promises');
-let { PurgeCSS } = require('purgecss');
-
+let { writeFile, readdir, rm, mkdir } = require('fs/promises');
 let path = require('path');
 let { spawn } = require('child_process');
-let { watchTree } = require('watch');
+let csstree = require('css-tree');
+// let { watchTree } = require('watch');
 
 let appPath = path.join(__dirname, '../app');
 let routesPath = path.join(appPath, 'routes');
 let stylesPath = path.join(appPath, 'styles');
 let stylesRoutesPath = path.join(stylesPath, 'routes');
 
-/** This is where the magic happens */
-generateStyles();
-async function generateStyles() {
-  // remove all the style files before building them from scratch
+let baseTailwindCss = path.join(stylesPath, 'tailwind/base.css');
+let routeTailwindCss = path.join(stylesPath, 'tailwind/route.css');
+
+let root = path.join(appPath, 'root.{js,jsx,ts,tsx}');
+
+createStyles();
+
+async function createStyles() {
+  let t0 = performance.now();
+  // Dump all the files and start with a clean slate for production
+  // This would be bad in development, lots of dev server crashing 😬
   if (process.env.NODE_ENV === 'production') {
     dumpCssFiles();
   }
 
-  if (process.env.NODE_ENV === 'production') {
-    let basePromise = promisifyChildProcess(spawnBaseStyles());
-    let routesPromise = spawnFilesInDirectory();
-    await Promise.all([basePromise, routesPromise]);
-    await purgeFinalCss();
-    console.log();
-    console.log('all css has been successfully purged');
-    console.log();
-  } else {
-    // TODO: optimize this development watching
-    watchTree(routesPath, async (f, curr, prev) => {
-      let basePromise = promisifyChildProcess(spawnBaseStyles());
-      let routesPromise = spawnFilesInDirectory();
-      await Promise.all([basePromise, routesPromise]);
-      await purgeFinalCss();
-    });
+  // watchTree(routesPath, async (f, curr, prev) => {
+  //   if (typeof f == "object" && prev === null && curr === null) {
+  //     // Finished walking the tree
+  //   } else if (prev === null) {
+  //     // f is a new file
+  //   } else if (curr.nlink === 0) {
+  //     // f was removed
+  //   } else {
+  //     // f was changed
+  //   }
+  // })
+
+  // Start creating the root tailwind styles
+  let rootAstPromise = generateAndSaveRootTailwindStyles();
+  // Generate all ASTs—we must wait until this process is done to proceed
+  let routeAstMap = await generateRouteTailwindAsts();
+
+  // Make all the directories we will need, as well as resolve and pull out the root AST
+  let [rootAst] = await Promise.all([
+    rootAstPromise,
+    makeDirectories(routeAstMap.keys()),
+  ]);
+
+  // Create all of the route stylesheets
+  await generateAndSaveRouteTailwindStyles(routeAstMap, rootAst.classNames);
+
+  console.log();
+  console.log(
+    `All css has been successfully generated in ${performance.now() - t0}ms`
+  );
+  console.log();
+}
+
+/**
+ * Make all the styles directories we need
+ * @param {string[] | IterableIterator<string>} pathnames
+ */
+async function makeDirectories(pathnames) {
+  // Create all the directories we might need
+  let directoryPromise = [];
+  let directories = new Set();
+  for (let pathname of pathnames) {
+    let directory = path.dirname(getCssPathname(pathname));
+    // skip directories we're already working on
+    if (directories.has(directory)) continue;
+
+    // Make the directory and keep track of the promise/update the set
+    directoryPromise.push(mkdir(directory, { recursive: true }));
+    directories.add(directory);
+  }
+
+  // Group all directory creation promises into a single promise
+  try {
+    await Promise.all(directoryPromise);
+  } catch (error) {
+    // ignore if the directory already exists—just keep trucking
+    if (error.code !== 'EEXIST') {
+      throw error;
+    }
   }
 }
 
-function createTailwindArgs(input, output, purgePath) {
-  // let root = purgePath.replace(new RegExp(`${routesPath}\/?`), '');
-  // root = root.substr(0, root.lastIndexOf('.')) || root;
-  // const ancestorPathnames = generateAncestorPathnames(root);
+/**
+ * Generates an AST of and creates a file for the root/global styles
+ * @param {string} contentPathname
+ * @returns {Promise<{ast: csstree.CssNode, classNames: Set<string>}>} AST and Set of classNames
+ */
+async function generateAndSaveRootTailwindStyles(
+  contentPathname = `${root},${appPath}/components/**/*.{js,jsx,ts,tsx}`
+) {
+  let rootAst = await generateTailwindAst(baseTailwindCss, contentPathname);
 
-  let base = ['-i', input, '-o', output, `--content="${purgePath}"`, '--jit'];
+  // Kick of the root stylesheet writing
+  // This may be a bad idea to delay the return of classNames until this is
+  // finished, however I believe this will pretty much always be done before
+  // the rest of the ASTs are generated
+  let rootStylesheet = csstree.generate(rootAst);
+  await writeFile(path.join(stylesPath, 'root.css'), rootStylesheet);
 
-  base.push('--minify');
-  // if (process.env.NODE_ENV === 'production') {
-  //   base.push('--minify');
-  // }
-  // } else {
-  //   base.push('--watch');
-  // }
-
-  return base;
+  return {
+    ast: rootAst,
+    classNames: getClassNames(rootAst),
+  };
 }
 
-function spawnTailwind(pathname) {
-  let outputPathname = `"${stylesRoutesPath}/${cssifyFileName(pathname)}"`;
+/**
+ *
+ * @param {Map<string, {ast: csstree.CssNode, classNames: Set<string>}>} routeAstMap
+ * @param {Set<string>} rootClassNames
+ * @returns
+ */
+async function generateAndSaveRouteTailwindStyles(routeAstMap, rootClassNames) {
+  let fileWritingPromises = [];
+  // Map over all of the route stylesheets, create a set of ancestor classNames, purge the stylesheet, and write it
+  for (let pathname of routeAstMap.keys()) {
+    let ancestorPathnames = getAncestorPathnames(pathname);
+    // Every route has root as the ancestor
+    let ancestorClassNames = rootClassNames;
 
-  let tw = spawn(
+    for (let ancestorPathname of ancestorPathnames) {
+      // Skip ancestorPathnames that don't exist
+      if (!routeAstMap.has(ancestorPathname)) continue;
+      let { classNames } = routeAstMap.get(ancestorPathname);
+      ancestorClassNames = new Set([...rootClassNames, ...classNames]);
+    }
+
+    let { ast } = routeAstMap.get(pathname);
+    let stylesheetText = generatePurgedStylesheet(ast, ancestorClassNames);
+
+    let promise = writeFile(getCssPathname(pathname), stylesheetText);
+    fileWritingPromises.push(promise);
+  }
+
+  return Promise.all(fileWritingPromises);
+}
+
+/**
+ * Generates and loops over a list of file paths and generates the tailwind styles for each file,
+ * returning an AST of the styles in a Map keyed by the route path
+ * Note: The pathname keys have their extension stripped
+ * @returns {Promise<Map<string, {ast: csstree.CssNode, classNames: Set<string>}>>} Map of file path to AST and Set of classNames
+ */
+async function generateRouteTailwindAsts() {
+  let filePaths = await getAllFilePaths();
+
+  let entryPromises = filePaths.map(async (pathname) => {
+    // drop the extension for the route path—this helps with matching parent directories later
+    let extensionRegex = new RegExp(`${path.extname(pathname)}$`);
+    let extensionlessPathname = pathname.replace(extensionRegex, '');
+    let ast = await generateTailwindAst(routeTailwindCss, pathname);
+    let classNames = getClassNames(ast);
+    let entry = [extensionlessPathname, { ast, classNames }];
+    return entry;
+  });
+
+  let entries = (await Promise.all(entryPromises)).filter(Boolean);
+  return new Map(entries);
+}
+
+/**
+ * Walk the AST of a css file and remove classNames that appear in the ancestors
+ * @param {csstree.CssNode} ast
+ * @param {Set<string>} ancestorClassNames
+ * @returns {string} The purged css
+ */
+function generatePurgedStylesheet(ast, ancestorClassNames) {
+  csstree.clone(ast);
+  // remove all classes that exist in the ancestor classNames
+  csstree.walk(ast, {
+    visit: 'Rule', // this option is good for performance since reduces walking path length
+    enter: function (node, item, list) {
+      // since `visit` option is used, handler will be invoked for node.type === 'Rule' only
+      if (selectorHasClassName(node.prelude, ancestorClassNames)) {
+        list.remove(item);
+      }
+    },
+  });
+
+  return csstree.generate(ast);
+}
+
+/**
+ * Check if a selector has a className that exists in the ancestorClassNames
+ * @param {csstree.Raw | csstree.SelectorList} selector
+ * @param {Set<string>} classNames Set of the classNames to check
+ * @returns {boolean}
+ */
+function selectorHasClassName(selector, classNames) {
+  return csstree.find(
+    selector,
+    (node) => node.type === 'ClassSelector' && classNames.has(node.name)
+  );
+}
+
+/**
+ * Walk the AST of a css file and return a Set of the classNames
+ * @param {csstree.CssNode} ast
+ * @returns {Set<string>}
+ */
+function getClassNames(ast) {
+  let classNames = new Set();
+
+  csstree.walk(ast, {
+    visit: 'ClassSelector',
+    enter: function (node) {
+      classNames.add(node.name);
+    },
+  });
+
+  return classNames;
+}
+
+/**
+ * Runs the tailwindcss CLI for a specific file then parses and returns an AST of the styles
+ * @param {string} inputStylePathname
+ * @param {string} contentPathname
+ * @returns {Promise<csstree.CssNode>} AST of tailwindcss styles for contentPathname
+ */
+async function generateTailwindAst(inputStylePathname, contentPathname) {
+  let twProcess = spawn(
     'tailwindcss',
-    createTailwindArgs(
-      `${stylesPath}/tailwind/route.css`,
-      outputPathname,
-      `${routesPath}/${pathname}`
-    ),
+    ['-i', inputStylePathname, `--content=${contentPathname}`],
     { shell: true }
   );
-
-  tw.stdout.on('data', (data) => {
-    console.log(data);
-  });
-  tw.stderr.on('data', (data) => {
-    if (/no utility classes were detected in your source files/i.test(data)) {
-      // TODO: don't kill but instead "skip"
-      tw.kill();
-    }
-  });
-  tw.on('error', (error) => {
-    console.error(error.message);
-  });
-  tw.on('close', (code) => {
-    console.log(`child process exited with code ${code}`);
-  });
-
-  return tw;
+  let output = await promisifyTailwindProcess(twProcess);
+  return csstree.parse(output);
 }
 
-async function spawnFilesInDirectory(directoryPath = routesPath) {
-  let promises = []; // hold all the promises to know when all of the processes have closed
+// #region UTILS
+
+/**
+ * Turn a child processes resulting from calling `spawn` into promises
+ * that resolves once the process closes
+ * @param {import('child_process').ChildProcessWithoutNullStreams} twProcess
+ * @returns
+ */
+function promisifyTailwindProcess(twProcess) {
+  return new Promise((resolve, reject) => {
+    let output = '';
+    twProcess.stdout.on('data', (data) => {
+      output += String(data);
+    });
+
+    twProcess.on('close', (code) => {
+      resolve(output);
+    });
+
+    twProcess.on('error', (error) => {
+      reject(error.message);
+    });
+  });
+}
+
+/**
+ * Recursively walks a directory and returns a list of all the file pathnames
+ * @param {string} directoryPath Path of the directory with files to generate ASTs and recursively walk
+ * @returns {Promise<string[]>} List of file pathnames
+ */
+async function getAllFilePaths(directoryPath = routesPath) {
+  let filePaths = [];
+  let childrenDirectoryPromises = [];
+
   let files = await readdir(directoryPath, { withFileTypes: true });
 
   for (let file of files) {
-    if (file.isDirectory()) {
-      let directoryPromise = spawnFilesInDirectory(
-        `${directoryPath}/${file.name}`
-      );
-      promises.push(directoryPromise);
+    let pathname = `${directoryPath}/${file.name}`;
+    // Add all files to the list of file names and recursively walk children directories
+    if (!file.isDirectory()) {
+      filePaths.push(pathname);
     } else {
-      // find the relative path of the route from the base of the routes path
-      // removing the first / if one exists and escaping all dollar signs
-      let root = directoryPath.replace(routesPath, '');
-      let pathname = `${root}/${file.name}`
-        .replace('/', '')
-        .replace(/\$/g, '\\$');
-      let tw = spawnTailwind(pathname);
-      promises.push(promisifyChildProcess(tw));
+      childrenDirectoryPromises.push(getAllFilePaths(pathname));
     }
   }
 
-  return Promise.all(promises);
-}
+  // Add the child directory file names to the list of file names
+  let childDirectoryFilePaths = await Promise.all(childrenDirectoryPromises);
+  filePaths.push(...childDirectoryFilePaths.flat());
 
-// turn child processes resulting from calling `spawn` into promises
-// that simply resolve when the process closes
-function promisifyChildProcess(childProcess) {
-  return new Promise((resolve) => {
-    childProcess.on('close', resolve);
-  });
-}
-
-async function purgeFinalCss(directoryPath = routesPath) {
-  let files = await readdir(directoryPath, { withFileTypes: true });
-
-  let promises = files.map((file) => {
-    // recursively purge all files in a directory
-    if (file.isDirectory()) {
-      let directoryPromise = purgeFinalCss(`${directoryPath}/${file.name}`);
-      return directoryPromise;
-    }
-
-    // purge the css file
-
-    // find the relative path of the route from the base of the routes path
-    // removing the first / if one exists
-    let root = directoryPath.replace(new RegExp(`${routesPath}/?`), '');
-    let cssFile = cssifyFileName(file.name);
-
-    let outFile = root
-      ? `${stylesRoutesPath}/${root}/${cssFile}`
-      : `${stylesRoutesPath}/${cssFile}`;
-    return purgeAncestorClasses(root, outFile);
-  });
-
-  return Promise.all(promises);
+  return filePaths;
 }
 
 /**
- * Adds or replaces file extension with .css
+ * Takes a pathname and returns the file pathname for each possible layout file.
+ * Assumes the pathname does not have it's extension and returns parent pathnames without extensions
+ * For more information on how Remix handles layout hierarchy, see https://remix.run/docs/en/v1/guides/routing#rendering-route-layout-hierarchies
+ * @param {string} pathname
+ * @returns {string[]} List of ancestor pathnames
  */
-function cssifyFileName(fileName) {
-  return `${removeExtension(fileName)}.css`;
+function getAncestorPathnames(pathname) {
+  let ext = path.extname(pathname);
+  if (ext !== '') {
+    throw new Error(`Pathname should not have an extension: ${pathname}`);
+  }
+
+  // remove everything up to './routes/' to only capture the pathnames we care about
+  let relativePath = pathname.replace(`${routesPath}/`, '');
+  let segments = relativePath.split('/');
+  segments.pop(); // remove the last segment since we only want ancestor pathnames
+
+  return segments.map((s) => path.join(routesPath, s));
 }
 
 /**
- * Remove the file extension from a file name
+ * Takes a pathname and returns the appropriate stylesheet (.css) file pathname
+ * @param {string} pathname
  */
-function removeExtension(fileName) {
-  return fileName.substr(0, fileName.lastIndexOf('.')) || fileName;
-}
-
-/**
- * Create the base stylesheet, which consists of:
- * - css reset
- * - classnames in root.tsx
- * - classnames in components directory
- */
-function spawnBaseStyles() {
-  let tw = spawn(
-    'tailwindcss',
-    createTailwindArgs(
-      `${stylesPath}/tailwind/base.css`,
-      `${stylesPath}/root.css`,
-      // add all of the components styles as well
-      `${appPath}/root.tsx,${appPath}/components/**/*.{js,jsx,ts,tsx}`
-    ),
-    { shell: true }
-  );
-
-  tw.stdout.on('data', (data) => {
-    console.log(data);
-  });
-  tw.stderr.on('data', (data) => {
-    console.error(String(data));
-  });
-  tw.on('error', (error) => {
-    console.error(error.message);
-  });
-  tw.on('close', (code) => {
-    console.log(`child process exited with code ${code}`);
-  });
-  return tw;
-}
-
-async function purgeAncestorClasses(pathname, outFile) {
-  let file;
-  try {
-    file = await readFile(outFile);
-  } catch (error) {
-    // skip files that doesn't exist
-    return;
-  }
-
-  // get the files to use for purging
-  let filesToPurge = generateAncestorPathnames(pathname);
-  let purgeCSSResult = await new PurgeCSS().purge({
-    content: filesToPurge,
-    css: [outFile],
-  });
-
-  let newFile = file.toString();
-  for (let { css } of purgeCSSResult) {
-    let re = new RegExp('(' + css.replace(/\}\./g, '}|.') + ')', 'g');
-    for (let classDef of css.split('\n\n').filter(Boolean)) {
-      newFile = newFile.replace(re, '');
-    }
-  }
-
-  return writeFile(outFile, newFile);
-}
-
-function generateAncestorPathnames(pathname) {
-  let pathnames = [`${appPath}/root.{js,jsx,ts,tsx}`];
-
-  if (pathname !== '') {
-    let segments = pathname.split('/');
-    // generate the path names for all of the potential parent css files
-    // skipping files that don't exist
-    for (let i = 0; i < segments.length; i++) {
-      let path = `${routesPath}/${segments
-        .slice(0, i + 1)
-        .join('/')}.{js,jsx,ts,tsx}`;
-
-      pathnames.push(path);
-    }
-  }
-  return pathnames;
+function getCssPathname(pathname) {
+  // remove everything up to './routes/' to only capture the pathnames we care about
+  let relativePath = pathname.replace(`${routesPath}/`, '');
+  return path.join(stylesRoutesPath, `${relativePath}.css`);
 }
 
 /**
@@ -243,7 +321,10 @@ function generateAncestorPathnames(pathname) {
  */
 async function dumpCssFiles() {
   try {
-    await rm(stylesRoutesPath, { recursive: true });
+    await Promise.all([
+      rm(path.join(stylesPath, 'root.css')),
+      rm(stylesRoutesPath, { recursive: true }),
+    ]);
   } catch (error) {
     // if the directory doesn't exist just keep going
     if (error.code !== 'ENOENT') {
@@ -251,3 +332,5 @@ async function dumpCssFiles() {
     }
   }
 }
+
+// #endregion

@@ -7,11 +7,10 @@
   "scripts": {
     "postinstall": "remix setup node",
     "build": "run-s build:*",
-    "build:css": "NODE_ENV=production node scripts/styles2.js",
-    "styles": "node scripts/styles2.js",
+    "build:css": "NODE_ENV=production node scripts/styles.js",
     "build:remix": "remix build",
     "dev": "run-p dev:*",
-    "dev:css": "NODE_ENV=development node scripts/styles2.js",
+    "dev:css": "NODE_ENV=development node scripts/styles.js",
     "dev:remix": "cross-env NODE_ENV=development binode --require ./mocks -- @remix-run/dev:remix dev",
     "format": "prettier --write .",
     "lint": "eslint --cache --cache-location ./node_modules/.cache/eslint .",
