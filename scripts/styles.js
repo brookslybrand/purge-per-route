@@ -2,7 +2,8 @@ let { writeFile, readdir, rm, mkdir } = require('fs/promises');
 let path = require('path');
 let { spawn } = require('child_process');
 let csstree = require('css-tree');
-// let { watchTree } = require('watch');
+const chokidar = require('chokidar');
+const { removeExtension } = require('tsconfig-paths/lib/filesystem');
 
 let appPath = path.join(__dirname, '../app');
 let routesPath = path.join(appPath, 'routes');
@@ -20,32 +21,58 @@ async function createStyles() {
   let t0 = performance.now();
   // Dump all the files and start with a clean slate for production
   // This would be bad in development, lots of dev server crashing 😬
-  if (process.env.NODE_ENV === 'production') {
-    dumpCssFiles();
-  }
-
-  // watchTree(routesPath, async (f, curr, prev) => {
-  //   if (typeof f == "object" && prev === null && curr === null) {
-  //     // Finished walking the tree
-  //   } else if (prev === null) {
-  //     // f is a new file
-  //   } else if (curr.nlink === 0) {
-  //     // f was removed
-  //   } else {
-  //     // f was changed
-  //   }
-  // })
+  // if (process.env.NODE_ENV === 'production') {
+  dumpCssFiles();
+  // }
 
   // Start creating the root tailwind styles
   let rootAstPromise = generateAndSaveRootTailwindStyles();
   // Generate all ASTs—we must wait until this process is done to proceed
-  let routeAstMap = await generateRouteTailwindAsts();
+  let routeAstMap = await generateRouteTailwindAstMap();
 
   // Make all the directories we will need, as well as resolve and pull out the root AST
   let [rootAst] = await Promise.all([
     rootAstPromise,
     makeDirectories(routeAstMap.keys()),
   ]);
+
+  if (process.env.NODE_ENV === 'development') {
+    const watcher = chokidar.watch(routesPath, {
+      // ignored: /(^|[\/\\])\../, // ignore dotfiles
+      persistent: true,
+      ignoreInitial: true,
+    });
+
+    watcher
+      .on('ready', () =>
+        console.log('Initial scan complete. Ready for changes')
+      )
+      .on('unlink', (pathname) => {
+        console.log('remove', pathname);
+        // Remove AST from map and remove the css file
+        routeAstMap.delete(pathname);
+        rm(getCssPathname(pathname));
+      })
+      .on('add', async (pathname) => {
+        console.log('added', pathname);
+        // Generate the new entry and create the necessary directory
+        // (doesn't matter if directory exists)
+        let [entry] = await Promise.all([
+          generateRouteTailwindAstEntry(pathname),
+          makeDirectories([pathname]),
+        ]);
+        routeAstMap.set(entry[0], entry[1]);
+        generateAndSaveRouteTailwindStyles(routeAstMap, rootAst.classNames);
+      })
+      .on('change', async (pathname) => {
+        console.log('updated', pathname);
+        let entry = await generateRouteTailwindAstEntry(pathname);
+        routeAstMap.set(entry[0], entry[1]);
+        generateAndSaveRouteTailwindStyles(routeAstMap, rootAst.classNames);
+      });
+
+    // generateAndSaveRouteTailwindStyles(routeAstMap, rootAst.classNames);
+  }
 
   // Create all of the route stylesheets
   await generateAndSaveRouteTailwindStyles(routeAstMap, rootAst.classNames);
@@ -146,21 +173,28 @@ async function generateAndSaveRouteTailwindStyles(routeAstMap, rootClassNames) {
  * Note: The pathname keys have their extension stripped
  * @returns {Promise<Map<string, {ast: csstree.CssNode, classNames: Set<string>}>>} Map of file path to AST and Set of classNames
  */
-async function generateRouteTailwindAsts() {
+async function generateRouteTailwindAstMap() {
   let filePaths = await getAllFilePaths();
-
-  let entryPromises = filePaths.map(async (pathname) => {
-    // drop the extension for the route path—this helps with matching parent directories later
-    let extensionRegex = new RegExp(`${path.extname(pathname)}$`);
-    let extensionlessPathname = pathname.replace(extensionRegex, '');
-    let ast = await generateTailwindAst(routeTailwindCss, pathname);
-    let classNames = getClassNames(ast);
-    let entry = [extensionlessPathname, { ast, classNames }];
-    return entry;
-  });
-
-  let entries = (await Promise.all(entryPromises)).filter(Boolean);
+  let entryPromises = filePaths.map((pathname) =>
+    generateRouteTailwindAstEntry(pathname)
+  );
+  let entries = await Promise.all(entryPromises);
   return new Map(entries);
+}
+
+/**
+ * Create a single entry for the map of route pathnames to AST/className
+ * @param {string} pathname
+ * @returns {Promise<[string, {ast: csstree.CssNode, classNames: Set<string>}]>}
+ */
+async function generateRouteTailwindAstEntry(pathname) {
+  // drop the extension for the route path—this helps with matching parent directories later
+  let extensionRegex = new RegExp(`${path.extname(pathname)}$`);
+  let extensionlessPathname = pathname.replace(extensionRegex, '');
+  let ast = await generateTailwindAst(routeTailwindCss, pathname);
+  let classNames = getClassNames(ast);
+  let entry = [extensionlessPathname, { ast, classNames }];
+  return entry;
 }
 
 /**
@@ -311,9 +345,11 @@ function getAncestorPathnames(pathname) {
  * @param {string} pathname
  */
 function getCssPathname(pathname) {
-  // remove everything up to './routes/' to only capture the pathnames we care about
+  // Remove everything up to './routes/' to only capture the pathnames we care about
   let relativePath = pathname.replace(`${routesPath}/`, '');
-  return path.join(stylesRoutesPath, `${relativePath}.css`);
+  // Ensure extension is removed
+  let extensionlessPathname = removeExtension(relativePath);
+  return path.join(stylesRoutesPath, `${extensionlessPathname}.css`);
 }
 
 /**
