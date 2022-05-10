@@ -14,16 +14,18 @@ let baseTailwindCss = path.join(stylesPath, 'tailwind/base.css');
 let routeTailwindCss = path.join(stylesPath, 'tailwind/route.css');
 
 let root = path.join(appPath, 'root.{js,jsx,ts,tsx}');
+let rootStylesPath = path.join(stylesPath, 'root.css');
 
 createStyles();
 
 async function createStyles() {
+  let isProd = process.env.NODE_ENV === 'production';
   let t0 = performance.now();
   // Dump all the files and start with a clean slate for production
   // This would be bad in development, lots of dev server crashing 😬
-  // if (process.env.NODE_ENV === 'production') {
-  dumpCssFiles();
-  // }
+  if (isProd) {
+    dumpCssFiles();
+  }
 
   // Start creating the root tailwind styles
   let rootAstPromise = generateAndSaveRootTailwindStyles();
@@ -36,25 +38,79 @@ async function createStyles() {
     makeDirectories(routeAstMap.keys()),
   ]);
 
-  if (process.env.NODE_ENV === 'development') {
-    const watcher = chokidar.watch(routesPath, {
-      // ignored: /(^|[\/\\])\../, // ignore dotfiles
+  // Maybe should check if in Dev specifically, but for now this is fine
+  if (!isProd) {
+    setupWatcher(rootAst, routeAstMap);
+  }
+
+  // Create all of the route stylesheets
+  await generateAndSaveRouteTailwindStyles(routeAstMap, rootAst.classNames);
+
+  console.log();
+  if (isProd) {
+    console.log(
+      `All css has been successfully generated in ${performance.now() - t0}ms`
+    );
+  } else {
+    console.log(`Initially css generated in ${performance.now() - t0}ms`);
+    console.log('Watching for updates...');
+  }
+  console.log();
+}
+
+/**
+ * Sets up a watcher to regenerate the stylesheets when appropriate files change
+ * @param {{ast: csstree.CssNode; classNames: Set<string>;} rootAst
+ * @param {Map<string, {ast: csstree.CssNode; classNames: Set<string>;}>} routeAstMap
+ */
+function setupWatcher(rootAst, routeAstMap) {
+  const rootWatcher = chokidar.watch(
+    // `${root},${appPath}/components/**/*.{js,jsx,ts,tsx}`,
+    [root, `${appPath}/components/**/*.{js,jsx,ts,tsx}`],
+    {
       persistent: true,
       ignoreInitial: true,
-    });
+    }
+  );
 
-    watcher
-      .on('ready', () =>
-        console.log('Initial scan complete. Ready for changes')
-      )
-      .on('unlink', (pathname) => {
-        console.log('remove', pathname);
+  rootWatcher.on('all', () =>
+    logStyleUpdate('update', async () => {
+      let newRootAst = await generateAndSaveRootTailwindStyles();
+      // Check if the styles have actually changed, otherwise we can bail
+      let hasSameClassnames = areSetsEqual(
+        rootAst.classNames,
+        newRootAst.classNames
+      );
+      if (hasSameClassnames) return;
+      // Update the reference for the other watcher to use and regenerate all styles
+      // since root is the ancestor of everything
+      rootAst = newRootAst;
+      await generateAndSaveRouteTailwindStyles(routeAstMap, rootAst.classNames);
+      return rootStylesPath;
+    })
+  );
+
+  // Not sure if we need to ignore any files since everything in `/routes/` should be a route
+  const routesWatcher = chokidar.watch(routesPath, {
+    persistent: true,
+    ignoreInitial: true,
+  });
+
+  // Setup a watcher to remove ASTs and files, create directories and add new ASTs, and update ASTs
+  routesWatcher
+    .on('unlink', (pathname) =>
+      logStyleUpdate('remove', async () => {
         // Remove AST from map and remove the css file
         routeAstMap.delete(pathname);
         rm(getCssPathname(pathname));
+        await generateAndSaveRouteTailwindStyles(
+          routeAstMap,
+          rootAst.classNames
+        );
       })
-      .on('add', async (pathname) => {
-        console.log('added', pathname);
+    )
+    .on('add', (pathname) => {
+      logStyleUpdate('add', async () => {
         // Generate the new entry and create the necessary directory
         // (doesn't matter if directory exists)
         let [entry] = await Promise.all([
@@ -62,26 +118,56 @@ async function createStyles() {
           makeDirectories([pathname]),
         ]);
         routeAstMap.set(entry[0], entry[1]);
-        generateAndSaveRouteTailwindStyles(routeAstMap, rootAst.classNames);
-      })
-      .on('change', async (pathname) => {
-        console.log('updated', pathname);
-        let entry = await generateRouteTailwindAstEntry(pathname);
-        routeAstMap.set(entry[0], entry[1]);
-        generateAndSaveRouteTailwindStyles(routeAstMap, rootAst.classNames);
+        await generateAndSaveRouteTailwindStyles(
+          routeAstMap,
+          rootAst.classNames
+        );
+        return getCssPathname(entry[0]);
       });
+    })
+    .on('change', (pathname) => {
+      logStyleUpdate('update', async () => {
+        let [extensionlessPathname, astObject] =
+          await generateRouteTailwindAstEntry(pathname);
+        // Check if the styles have actually changed, otherwise we can bail
+        let hasSameClassnames = areSetsEqual(
+          routeAstMap.get(extensionlessPathname).classNames,
+          astObject.classNames
+        );
+        if (hasSameClassnames) return;
+        // Update the AST map and save the styles
+        routeAstMap.set(extensionlessPathname, astObject);
+        await generateAndSaveRouteTailwindStyles(
+          routeAstMap,
+          rootAst.classNames,
+          new Set([extensionlessPathname])
+        );
+        return getCssPathname(extensionlessPathname);
+      });
+      // Generate the AST
+    })
+    // Don't know if better error handling is needed
+    .on('error', (error) => console.error(`Watcher error: ${error}`));
+}
 
-    // generateAndSaveRouteTailwindStyles(routeAstMap, rootAst.classNames);
+/**
+ * @param {'add' | 'update' | 'remove'} action
+ * @param {() => Promise<string | undefined>} cb
+ */
+async function logStyleUpdate(action, cb) {
+  let t0 = performance.now();
+  const pathname = await cb();
+  if (pathname) {
+    let displayAction =
+      action === 'add' ? 'Added' : action === 'update' ? 'Updated' : 'Removed';
+    let ms = performance.now() - t0;
+    let displayPathname = `app${pathname.replace(appPath, '')}`;
+    console.log();
+    console.log(
+      `${displayAction} ${displayPathname} styles and purged relevant stylesheets in ${ms}ms`
+    );
+    console.log();
   }
-
-  // Create all of the route stylesheets
-  await generateAndSaveRouteTailwindStyles(routeAstMap, rootAst.classNames);
-
-  console.log();
-  console.log(
-    `All css has been successfully generated in ${performance.now() - t0}ms`
-  );
-  console.log();
 }
 
 /**
@@ -116,7 +202,7 @@ async function makeDirectories(pathnames) {
 /**
  * Generates an AST of and creates a file for the root/global styles
  * @param {string} contentPathname
- * @returns {Promise<{ast: csstree.CssNode, classNames: Set<string>}>} AST and Set of classNames
+ * @returns {Promise<{ast: csstree.CssNode; classNames: Set<string>;}>} AST and Set of classNames
  */
 async function generateAndSaveRootTailwindStyles(
   contentPathname = `${root},${appPath}/components/**/*.{js,jsx,ts,tsx}`
@@ -128,7 +214,7 @@ async function generateAndSaveRootTailwindStyles(
   // finished, however I believe this will pretty much always be done before
   // the rest of the ASTs are generated
   let rootStylesheet = csstree.generate(rootAst);
-  await writeFile(path.join(stylesPath, 'root.css'), rootStylesheet);
+  await writeFile(rootStylesPath, rootStylesheet);
 
   return {
     ast: rootAst,
@@ -138,24 +224,36 @@ async function generateAndSaveRootTailwindStyles(
 
 /**
  *
- * @param {Map<string, {ast: csstree.CssNode, classNames: Set<string>}>} routeAstMap
+ * @param {Map<string, {ast: csstree.CssNode; classNames: Set<string>;}>} routeAstMap
  * @param {Set<string>} rootClassNames
+ * @param {null | Set<string>} dirtyPathnames If null, all paths are dirty, otherwise only update anything relying on the dirty path
  * @returns
  */
-async function generateAndSaveRouteTailwindStyles(routeAstMap, rootClassNames) {
+async function generateAndSaveRouteTailwindStyles(
+  routeAstMap,
+  rootClassNames,
+  dirtyPathnames = null
+) {
   let fileWritingPromises = [];
   // Map over all of the route stylesheets, create a set of ancestor classNames, purge the stylesheet, and write it
   for (let pathname of routeAstMap.keys()) {
+    let shouldUpdate = dirtyPathnames === null; // if null, all paths are dirty, so definitely update
     let ancestorPathnames = getAncestorPathnames(pathname);
     // Every route has root as the ancestor
     let ancestorClassNames = rootClassNames;
+
+    shouldUpdate = shouldUpdate || dirtyPathnames.has(pathname);
 
     for (let ancestorPathname of ancestorPathnames) {
       // Skip ancestorPathnames that don't exist
       if (!routeAstMap.has(ancestorPathname)) continue;
       let { classNames } = routeAstMap.get(ancestorPathname);
       ancestorClassNames = new Set([...rootClassNames, ...classNames]);
+      shouldUpdate = shouldUpdate || dirtyPathnames.has(ancestorPathname);
     }
+
+    // Skip routes we're not updating
+    if (!shouldUpdate) continue;
 
     let { ast } = routeAstMap.get(pathname);
     let stylesheetText = generatePurgedStylesheet(ast, ancestorClassNames);
@@ -185,7 +283,7 @@ async function generateRouteTailwindAstMap() {
 /**
  * Create a single entry for the map of route pathnames to AST/className
  * @param {string} pathname
- * @returns {Promise<[string, {ast: csstree.CssNode, classNames: Set<string>}]>}
+ * @returns {Promise<[string, {ast: csstree.CssNode; classNames: Set<string>;}]>}
  */
 async function generateRouteTailwindAstEntry(pathname) {
   // drop the extension for the route path—this helps with matching parent directories later
@@ -204,9 +302,9 @@ async function generateRouteTailwindAstEntry(pathname) {
  * @returns {string} The purged css
  */
 function generatePurgedStylesheet(ast, ancestorClassNames) {
-  csstree.clone(ast);
+  let cloneAst = csstree.clone(ast);
   // remove all classes that exist in the ancestor classNames
-  csstree.walk(ast, {
+  csstree.walk(cloneAst, {
     visit: 'Rule', // this option is good for performance since reduces walking path length
     enter: function (node, item, list) {
       // since `visit` option is used, handler will be invoked for node.type === 'Rule' only
@@ -216,7 +314,7 @@ function generatePurgedStylesheet(ast, ancestorClassNames) {
     },
   });
 
-  return csstree.generate(ast);
+  return csstree.generate(cloneAst);
 }
 
 /**
@@ -358,7 +456,7 @@ function getCssPathname(pathname) {
 async function dumpCssFiles() {
   try {
     await Promise.all([
-      rm(path.join(stylesPath, 'root.css')),
+      rm(rootStylesPath),
       rm(stylesRoutesPath, { recursive: true }),
     ]);
   } catch (error) {
@@ -367,6 +465,24 @@ async function dumpCssFiles() {
       throw error;
     }
   }
+}
+
+/**
+ * Compares 2 sets to see if they contain the same elements
+ * @param {Set<unknown>} set1
+ * @param {Set<unknown>} set2
+ * @returns {boolean} True if the sets contain the same elements
+ */
+function areSetsEqual(set1, set2) {
+  if (set1.size !== set2.size) {
+    return false;
+  }
+  for (let item of set1) {
+    if (!set2.has(item)) {
+      return false;
+    }
+  }
+  return true;
 }
 
 // #endregion
