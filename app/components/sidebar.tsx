@@ -2,14 +2,19 @@ import { Link, useLocation } from '@remix-run/react';
 import { classNames } from '~/utils';
 
 export interface SidebarProps {
+  className?: string;
   subPages: string[];
   children: React.ReactNode;
 }
 
-export default function Sidebar({ subPages, children }: SidebarProps) {
+export default function Sidebar({
+  className,
+  subPages,
+  children,
+}: SidebarProps) {
   const { pathname } = useLocation();
   return (
-    <div className="bg-white">
+    <div className={classNames('bg-white', className)}>
       <div>
         <section className="mx-auto max-w-7xl px-4 sm:px-6 lg:px-8">
           <section aria-labelledby="products-heading" className="pt-6 pb-24">
@@ -32,6 +37,7 @@ export default function Sidebar({ subPages, children }: SidebarProps) {
                             ? 'font-bold text-blue-900'
                             : ''
                         )}
+                        prefetch="intent"
                       >
                         {to.replace(/-/g, ' ')}
                       </Link>

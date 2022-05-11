@@ -4,7 +4,7 @@ import { Dialog, RadioGroup, Transition } from '@headlessui/react';
 import { XIcon } from '@heroicons/react/outline';
 import { StarIcon } from '@heroicons/react/solid';
 import { classNames } from '~/utils';
-import type { MetaFunction, LinksFunction } from '@remix-run/server-runtime';
+import type { MetaFunction, LinksFunction } from '@remix-run/node';
 
 import productQuickviews from '~/styles/routes/ecommerce/product-quickviews.css';
 

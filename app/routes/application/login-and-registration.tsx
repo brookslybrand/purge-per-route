@@ -1,6 +1,6 @@
 /* eslint-disable jsx-a11y/anchor-is-valid */
 import { LockClosedIcon } from '@heroicons/react/solid';
-import type { MetaFunction, LinksFunction } from '@remix-run/server-runtime';
+import type { MetaFunction, LinksFunction } from '@remix-run/node';
 import loginAndRegistrationCss from '~/styles/routes/application/login-and-registration.css';
 
 export let meta: MetaFunction = () => {

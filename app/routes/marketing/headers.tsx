@@ -16,7 +16,7 @@ import {
   XIcon,
 } from '@heroicons/react/outline';
 import { ChevronDownIcon } from '@heroicons/react/solid';
-import type { MetaFunction, LinksFunction } from '@remix-run/server-runtime';
+import type { MetaFunction, LinksFunction } from '@remix-run/node';
 import { classNames } from '~/utils';
 
 import headersCss from '~/styles/routes/marketing/headers.css';

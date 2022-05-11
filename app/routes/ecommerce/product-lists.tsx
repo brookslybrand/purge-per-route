@@ -1,4 +1,4 @@
-import type { MetaFunction, LinksFunction } from '@remix-run/server-runtime';
+import type { MetaFunction, LinksFunction } from '@remix-run/node';
 
 import productListsCss from '~/styles/routes/ecommerce/product-lists.css';
 

@@ -1,6 +1,6 @@
-import { redirect } from '@remix-run/server-runtime';
-import type { LoaderFunction } from '@remix-run/server-runtime';
+import { redirect } from '@remix-run/node';
+import type { LoaderFunction } from '@remix-run/node';
 
 export let loader: LoaderFunction = ({ request }) => {
-  return redirect(`${request.url}/banners`);
+  return redirect(`${request.url}/hero-sections`);
 };

@@ -2,8 +2,7 @@ let { writeFile, readdir, rm, mkdir } = require('fs/promises');
 let path = require('path');
 let { spawn } = require('child_process');
 let csstree = require('css-tree');
-const chokidar = require('chokidar');
-const { removeExtension } = require('tsconfig-paths/lib/filesystem');
+let chokidar = require('chokidar');
 
 let appPath = path.join(__dirname, '../app');
 let routesPath = path.join(appPath, 'routes');
@@ -18,6 +17,7 @@ let rootStylesPath = path.join(stylesPath, 'root.css');
 
 createStyles();
 
+// Main function to generate the stylesheets
 async function createStyles() {
   let isProd = process.env.NODE_ENV === 'production';
   let t0 = performance.now();
@@ -58,13 +58,14 @@ async function createStyles() {
   console.log();
 }
 
+// #region Watcher logic for dev mode
 /**
  * Sets up a watcher to regenerate the stylesheets when appropriate files change
  * @param {{ast: csstree.CssNode; classNames: Set<string>;} rootAst
  * @param {Map<string, {ast: csstree.CssNode; classNames: Set<string>;}>} routeAstMap
  */
 function setupWatcher(rootAst, routeAstMap) {
-  const rootWatcher = chokidar.watch(
+  let rootWatcher = chokidar.watch(
     // `${root},${appPath}/components/**/*.{js,jsx,ts,tsx}`,
     [root, `${appPath}/components/**/*.{js,jsx,ts,tsx}`],
     {
@@ -91,7 +92,7 @@ function setupWatcher(rootAst, routeAstMap) {
   );
 
   // Not sure if we need to ignore any files since everything in `/routes/` should be a route
-  const routesWatcher = chokidar.watch(routesPath, {
+  let routesWatcher = chokidar.watch(routesPath, {
     persistent: true,
     ignoreInitial: true,
   });
@@ -156,7 +157,7 @@ function setupWatcher(rootAst, routeAstMap) {
  */
 async function logStyleUpdate(action, cb) {
   let t0 = performance.now();
-  const pathname = await cb();
+  let pathname = await cb();
   if (pathname) {
     let displayAction =
       action === 'add' ? 'Added' : action === 'update' ? 'Updated' : 'Removed';
@@ -170,34 +171,9 @@ async function logStyleUpdate(action, cb) {
   }
 }
 
-/**
- * Make all the styles directories we need
- * @param {string[] | IterableIterator<string>} pathnames
- */
-async function makeDirectories(pathnames) {
-  // Create all the directories we might need
-  let directoryPromise = [];
-  let directories = new Set();
-  for (let pathname of pathnames) {
-    let directory = path.dirname(getCssPathname(pathname));
-    // skip directories we're already working on
-    if (directories.has(directory)) continue;
+// #endregion
 
-    // Make the directory and keep track of the promise/update the set
-    directoryPromise.push(mkdir(directory, { recursive: true }));
-    directories.add(directory);
-  }
-
-  // Group all directory creation promises into a single promise
-  try {
-    await Promise.all(directoryPromise);
-  } catch (error) {
-    // ignore if the directory already exists—just keep trucking
-    if (error.code !== 'EEXIST') {
-      throw error;
-    }
-  }
-}
+// #region Functions to generate ASTs of tailwindcss styles and and ultimately export stylesheets
 
 /**
  * Generates an AST of and creates a file for the root/global styles
@@ -296,6 +272,22 @@ async function generateRouteTailwindAstEntry(pathname) {
 }
 
 /**
+ * Runs the tailwindcss CLI for a specific file then parses and returns an AST of the styles
+ * @param {string} inputStylePathname
+ * @param {string} contentPathname
+ * @returns {Promise<csstree.CssNode>} AST of tailwindcss styles for contentPathname
+ */
+async function generateTailwindAst(inputStylePathname, contentPathname) {
+  let twProcess = spawn(
+    'tailwindcss',
+    ['-i', inputStylePathname, `--content=${contentPathname}`],
+    { shell: true }
+  );
+  let output = await promisifyTailwindProcess(twProcess);
+  return csstree.parse(output);
+}
+
+/**
  * Walk the AST of a css file and remove classNames that appear in the ancestors
  * @param {csstree.CssNode} ast
  * @param {Set<string>} ancestorClassNames
@@ -317,17 +309,54 @@ function generatePurgedStylesheet(ast, ancestorClassNames) {
   return csstree.generate(cloneAst);
 }
 
+// #endregion
+
+// #region Various utilities used throughout
+
 /**
- * Check if a selector has a className that exists in the ancestorClassNames
- * @param {csstree.Raw | csstree.SelectorList} selector
- * @param {Set<string>} classNames Set of the classNames to check
- * @returns {boolean}
+ * Recursively remove all the generated .css files to ensure we're starting fresh
  */
-function selectorHasClassName(selector, classNames) {
-  return csstree.find(
-    selector,
-    (node) => node.type === 'ClassSelector' && classNames.has(node.name)
-  );
+async function dumpCssFiles() {
+  try {
+    await Promise.all([
+      rm(rootStylesPath),
+      rm(stylesRoutesPath, { recursive: true }),
+    ]);
+  } catch (error) {
+    // if the directory doesn't exist just keep going
+    if (error.code !== 'ENOENT') {
+      throw error;
+    }
+  }
+}
+
+/**
+ * Make all the styles directories we need
+ * @param {string[] | IterableIterator<string>} pathnames
+ */
+async function makeDirectories(pathnames) {
+  // Create all the directories we might need
+  let directoryPromise = [];
+  let directories = new Set();
+  for (let pathname of pathnames) {
+    let directory = path.dirname(getCssPathname(pathname));
+    // skip directories we're already working on
+    if (directories.has(directory)) continue;
+
+    // Make the directory and keep track of the promise/update the set
+    directoryPromise.push(mkdir(directory, { recursive: true }));
+    directories.add(directory);
+  }
+
+  // Group all directory creation promises into a single promise
+  try {
+    await Promise.all(directoryPromise);
+  } catch (error) {
+    // ignore if the directory already exists—just keep trucking
+    if (error.code !== 'EEXIST') {
+      throw error;
+    }
+  }
 }
 
 /**
@@ -349,22 +378,17 @@ function getClassNames(ast) {
 }
 
 /**
- * Runs the tailwindcss CLI for a specific file then parses and returns an AST of the styles
- * @param {string} inputStylePathname
- * @param {string} contentPathname
- * @returns {Promise<csstree.CssNode>} AST of tailwindcss styles for contentPathname
+ * Check if a selector has a className that exists in the ancestorClassNames
+ * @param {csstree.Raw | csstree.SelectorList} selector
+ * @param {Set<string>} classNames Set of the classNames to check
+ * @returns {boolean}
  */
-async function generateTailwindAst(inputStylePathname, contentPathname) {
-  let twProcess = spawn(
-    'tailwindcss',
-    ['-i', inputStylePathname, `--content=${contentPathname}`],
-    { shell: true }
+function selectorHasClassName(selector, classNames) {
+  return csstree.find(
+    selector,
+    (node) => node.type === 'ClassSelector' && classNames.has(node.name)
   );
-  let output = await promisifyTailwindProcess(twProcess);
-  return csstree.parse(output);
 }
-
-// #region UTILS
 
 /**
  * Turn a child processes resulting from calling `spawn` into promises
@@ -445,26 +469,9 @@ function getAncestorPathnames(pathname) {
 function getCssPathname(pathname) {
   // Remove everything up to './routes/' to only capture the pathnames we care about
   let relativePath = pathname.replace(`${routesPath}/`, '');
-  // Ensure extension is removed
-  let extensionlessPathname = removeExtension(relativePath);
+  // Ensure extension is removed—regex taken from https://stackoverflow.com/a/4250408
+  let extensionlessPathname = relativePath.replace(/\.[^/.]+$/, '');
   return path.join(stylesRoutesPath, `${extensionlessPathname}.css`);
-}
-
-/**
- * Recursively remove all the generated .css files to ensure we're starting fresh
- */
-async function dumpCssFiles() {
-  try {
-    await Promise.all([
-      rm(rootStylesPath),
-      rm(stylesRoutesPath, { recursive: true }),
-    ]);
-  } catch (error) {
-    // if the directory doesn't exist just keep going
-    if (error.code !== 'ENOENT') {
-      throw error;
-    }
-  }
 }
 
 /**

@@ -4,7 +4,7 @@ import {
   LightningBoltIcon,
   ScaleIcon,
 } from '@heroicons/react/outline';
-import type { MetaFunction, LinksFunction } from '@remix-run/server-runtime';
+import type { MetaFunction, LinksFunction } from '@remix-run/node';
 
 import featureSections from '~/styles/routes/marketing/feature-sections.css';
 

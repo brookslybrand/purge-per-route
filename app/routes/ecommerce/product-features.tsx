@@ -1,4 +1,4 @@
-import type { MetaFunction, LinksFunction } from '@remix-run/server-runtime';
+import type { MetaFunction, LinksFunction } from '@remix-run/node';
 
 import productFeaturesCss from '~/styles/routes/ecommerce/product-features.css';
 
@@ -31,7 +31,7 @@ const features = [
 export default function ProductFeatures() {
   return (
     <div className="bg-white">
-      <div className="mx-auto grid max-w-2xl grid-cols-1 items-center gap-y-16 gap-x-8 px-4 sm:px-6 lg:max-w-7xl lg:grid-cols-2 lg:px-8">
+      <div className="mx-auto grid max-w-2xl grid-cols-1 items-center gap-y-16 gap-x-8 px-4 py-4 sm:px-6 lg:max-w-7xl lg:grid-cols-2 lg:px-8">
         <div>
           <h2 className="text-3xl font-extrabold tracking-tight text-gray-900 sm:text-4xl">
             Technical Specifications

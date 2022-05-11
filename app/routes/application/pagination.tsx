@@ -1,6 +1,6 @@
 /* eslint-disable jsx-a11y/anchor-is-valid */
 import { ChevronLeftIcon, ChevronRightIcon } from '@heroicons/react/solid';
-import type { MetaFunction, LinksFunction } from '@remix-run/server-runtime';
+import type { MetaFunction, LinksFunction } from '@remix-run/node';
 
 import paginationCss from '~/styles/routes/application/pagination.css';
 
