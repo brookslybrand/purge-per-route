@@ -1,9 +1,7 @@
 /**
- * @type {import('@remix-run/dev').AppConfig}
+ * @type {import('@remix-run/dev/config').AppConfig}
  */
 module.exports = {
-  cacheDirectory: './node_modules/.cache/remix',
-  serverBuildTarget: 'vercel',
   appDirectory: 'app',
   assetsBuildDirectory: 'public/build',
   publicPath: '/build/',
