@@ -3,6 +3,7 @@ let path = require('path');
 let { spawn } = require('child_process');
 let csstree = require('css-tree');
 let chokidar = require('chokidar');
+const { performance } = require('perf_hooks');
 
 let appPath = path.join(__dirname, '../app');
 let routesPath = path.join(appPath, 'routes');
@@ -49,10 +50,14 @@ async function createStyles() {
   console.log();
   if (isProd) {
     console.log(
-      `All css has been successfully generated in ${performance.now() - t0}ms`
+      `All css has been successfully generated in ${millisecondsFromTimestamp(
+        t0
+      )}ms`
     );
   } else {
-    console.log(`Initially css generated in ${performance.now() - t0}ms`);
+    console.log(
+      `Initially css generated in ${millisecondsFromTimestamp(t0)}ms`
+    );
     console.log('Watching for updates...');
   }
   console.log();
@@ -161,11 +166,12 @@ async function logStyleUpdate(action, cb) {
   if (pathname) {
     let displayAction =
       action === 'add' ? 'Added' : action === 'update' ? 'Updated' : 'Removed';
-    let ms = performance.now() - t0;
     let displayPathname = `app${pathname.replace(appPath, '')}`;
     console.log();
     console.log(
-      `${displayAction} ${displayPathname} styles and purged relevant stylesheets in ${ms}ms`
+      `${displayAction} ${displayPathname} styles and purged relevant stylesheets in ${millisecondsFromTimestamp(
+        t0
+      )}ms`
     );
     console.log();
   }
@@ -490,6 +496,14 @@ function areSetsEqual(set1, set2) {
     }
   }
   return true;
+}
+
+/**
+ * Returns a rounded difference between a timestamp and the current time
+ * @param {*} t0 number
+ */
+function millisecondsFromTimestamp(t0) {
+  return Math.round(performance.now() - t0);
 }
 
 // #endregion
