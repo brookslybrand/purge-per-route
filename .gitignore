@@ -1,13 +1,13 @@
 node_modules
 
-/build
-/public/build
+.cache
 .env
+.vercel
+.output
 
-/cypress/screenshots
-/cypress/videos
-/prisma/data.db
-/prisma/data.db-journal
+/build/
+/public/build
+/api/_build
 
 /app/styles/root.css
 /app/styles/routes
