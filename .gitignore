@@ -7,7 +7,7 @@ node_modules
 
 /build/
 /public/build
-/api/_build
+/api
 
 /app/styles/root.css
 /app/styles/routes
