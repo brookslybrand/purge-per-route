@@ -8,6 +8,16 @@ Here is a video that explains what's going on and why it's so cool!
 
 TODO: Add video link when it's created
 
+## How does it work
+
+All of the magic is in [scripts/styles.js](./scripts/styles.js)
+
+I tried to make the logic as clean as possible, but it's still a solid 500 lines and was built for a demo, so it might not be the most production ready code you've seen.
+
+To help orient you around how the logic roughly works, here it is [represented as a statechart](https://stately.ai/registry/editor/105a41c2-1cd9-41a9-a27a-324c71bfb735) (note: the actually logic is not an explicit statechart).
+
+![Statechart for generating stylesheets for a Remix app](docs/styles-logic-statechart.png)
+
 ## Getting started
 
 - Install dependencies:
