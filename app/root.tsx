@@ -14,7 +14,7 @@ import { Fragment } from 'react';
 import { Disclosure, Menu, Transition } from '@headlessui/react';
 import { BellIcon, MenuIcon, XIcon } from '@heroicons/react/outline';
 
-import tailwindStylesheetUrl from '~/styles/root.css';
+import tailwindStylesheetUrl from '~/styles/tailwind.css';
 import { classNames } from '~/utils';
 
 export const links: LinksFunction = () => {

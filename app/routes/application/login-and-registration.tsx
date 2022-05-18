@@ -1,14 +1,9 @@
 /* eslint-disable jsx-a11y/anchor-is-valid */
 import { LockClosedIcon } from '@heroicons/react/solid';
-import type { MetaFunction, LinksFunction } from '@remix-run/node';
-import loginAndRegistrationCss from '~/styles/routes/application/login-and-registration.css';
+import type { MetaFunction } from '@remix-run/node';
 
 export let meta: MetaFunction = () => {
   return { title: 'Application | Login and Registration' };
-};
-
-export const links: LinksFunction = () => {
-  return [{ rel: 'stylesheet', href: loginAndRegistrationCss }];
 };
 
 export default function LoginAndRegistration() {

@@ -1,13 +1,7 @@
-import type { MetaFunction, LinksFunction } from '@remix-run/node';
-
-import productFeaturesCss from '~/styles/routes/ecommerce/product-features.css';
+import type { MetaFunction } from '@remix-run/node';
 
 export let meta: MetaFunction = () => {
   return { title: 'Ecommerce | Product Features' };
-};
-
-export const links: LinksFunction = () => {
-  return [{ rel: 'stylesheet', href: productFeaturesCss }];
 };
 
 /* This example requires Tailwind CSS v2.0+ */

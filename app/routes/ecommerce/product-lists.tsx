@@ -1,13 +1,7 @@
-import type { MetaFunction, LinksFunction } from '@remix-run/node';
-
-import productListsCss from '~/styles/routes/ecommerce/product-lists.css';
+import type { MetaFunction } from '@remix-run/node';
 
 export let meta: MetaFunction = () => {
   return { title: 'Ecommerce | Product Lists' };
-};
-
-export const links: LinksFunction = () => {
-  return [{ rel: 'stylesheet', href: productListsCss }];
 };
 
 const products = [

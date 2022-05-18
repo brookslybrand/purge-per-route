@@ -2,17 +2,11 @@
 import { Fragment } from 'react';
 import { Menu, Transition } from '@headlessui/react';
 import { ChevronDownIcon } from '@heroicons/react/solid';
-import type { MetaFunction, LinksFunction } from '@remix-run/node';
+import type { MetaFunction } from '@remix-run/node';
 import { classNames } from '~/utils';
-
-import dropdowns from '~/styles/routes/application/dropdowns.css';
 
 export let meta: MetaFunction = () => {
   return { title: 'Application | Dropdowns' };
-};
-
-export const links: LinksFunction = () => {
-  return [{ rel: 'stylesheet', href: dropdowns }];
 };
 
 export default function Dropdowns() {

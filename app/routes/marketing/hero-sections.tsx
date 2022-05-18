@@ -2,16 +2,10 @@
 import { Fragment } from 'react';
 import { Popover, Transition } from '@headlessui/react';
 import { MenuIcon, XIcon } from '@heroicons/react/outline';
-import type { MetaFunction, LinksFunction } from '@remix-run/node';
-
-import hearoSectionsCss from '~/styles/routes/marketing/hero-sections.css';
+import type { MetaFunction } from '@remix-run/node';
 
 export let meta: MetaFunction = () => {
   return { title: 'Marketing | Hero Sections' };
-};
-
-export const links: LinksFunction = () => {
-  return [{ rel: 'stylesheet', href: hearoSectionsCss }];
 };
 
 const navigation = [

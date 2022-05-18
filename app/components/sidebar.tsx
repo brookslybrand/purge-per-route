@@ -37,7 +37,6 @@ export default function Sidebar({
                             ? 'font-bold text-blue-900'
                             : ''
                         )}
-                        prefetch="intent"
                       >
                         {to.replace(/-/g, ' ')}
                       </Link>

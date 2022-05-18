@@ -1,13 +1,7 @@
-import type { MetaFunction, LinksFunction } from '@remix-run/node';
-
-import categoryPreviewsCss from '~/styles/routes/ecommerce/category-previews.css';
+import type { MetaFunction } from '@remix-run/node';
 
 export let meta: MetaFunction = () => {
   return { title: 'Ecommerce | Category Previews' };
-};
-
-export const links: LinksFunction = () => {
-  return [{ rel: 'stylesheet', href: categoryPreviewsCss }];
 };
 
 const callouts = [

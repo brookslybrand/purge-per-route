@@ -4,16 +4,10 @@ import { Dialog, RadioGroup, Transition } from '@headlessui/react';
 import { XIcon } from '@heroicons/react/outline';
 import { StarIcon } from '@heroicons/react/solid';
 import { classNames } from '~/utils';
-import type { MetaFunction, LinksFunction } from '@remix-run/node';
-
-import productQuickviews from '~/styles/routes/ecommerce/product-quickviews.css';
+import type { MetaFunction } from '@remix-run/node';
 
 export let meta: MetaFunction = () => {
   return { title: 'Ecommerce | Product Quickviews' };
-};
-
-export const links: LinksFunction = () => {
-  return [{ rel: 'stylesheet', href: productQuickviews }];
 };
 
 const product = {

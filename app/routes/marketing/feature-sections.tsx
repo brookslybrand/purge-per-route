@@ -4,16 +4,10 @@ import {
   LightningBoltIcon,
   ScaleIcon,
 } from '@heroicons/react/outline';
-import type { MetaFunction, LinksFunction } from '@remix-run/node';
-
-import featureSections from '~/styles/routes/marketing/feature-sections.css';
+import type { MetaFunction } from '@remix-run/node';
 
 export let meta: MetaFunction = () => {
   return { title: 'Marketing | Feature Sections' };
-};
-
-export const links: LinksFunction = () => {
-  return [{ rel: 'stylesheet', href: featureSections }];
 };
 
 const features = [
