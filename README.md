@@ -2,11 +2,11 @@
 
 This is a demo for creating tailwind stylesheets for routes that purge based on the entire ancestry of the route.
 
-Feel free to play with the [live demo](purge-per-route.vercel.app). To see the CSS splitting per route, open up your Network tab and hover/click on all the links!
+Feel free to play with the [live demo](https://purge-per-route.vercel.app). To see the CSS splitting per route, open up your Network tab and hover/click on all the links!
 
 Here is a video that explains what's going on and why it's so cool!
 
-TODO: Add video link when it's created
+[![Purge-Per-Route Demo](https://img.youtube.com/vi/hGtdtDVUxIg/0.jpg)](https://www.youtube.com/watch?v=hGtdtDVUxIg)
 
 ## How does it work
 
